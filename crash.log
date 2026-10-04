@@ -1,0 +1,22 @@
+ERROR:root:
+2026-10-04 11:46:49.608736
+ADB isn't working
+Traceback (most recent call last):
+  File "/home/sythe/Apps/E7AutoBuy/autobuy.py", line 134, in <module>
+    resolution = screen()
+  File "/home/sythe/Apps/E7AutoBuy/autobuy.py", line 33, in screen
+    screenshot = Image.open(BytesIO(img_bytes))
+  File "/home/sythe/Apps/E7AutoBuy/venv/lib/python3.14/site-packages/PIL/Image.py", line 3715, in open
+    raise UnidentifiedImageError(msg)
+PIL.UnidentifiedImageError: cannot identify image file <_io.BytesIO object at 0x7f518c278680>
+ERROR:root:
+2026-10-04 11:47:48.968557
+ADB isn't working
+Traceback (most recent call last):
+  File "/home/sythe/Apps/E7AutoBuy/autobuy.py", line 134, in <module>
+    resolution = screen()
+  File "/home/sythe/Apps/E7AutoBuy/autobuy.py", line 33, in screen
+    screenshot = Image.open(BytesIO(img_bytes))
+  File "/home/sythe/Apps/E7AutoBuy/venv/lib/python3.14/site-packages/PIL/Image.py", line 3715, in open
+    raise UnidentifiedImageError(msg)
+PIL.UnidentifiedImageError: cannot identify image file <_io.BytesIO object at 0x7f32e092c540>

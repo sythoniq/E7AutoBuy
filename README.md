@@ -1,3 +1,91 @@
+# Tweaks And Steps to make it work for Waydroid on linux (Specifically Arch Linux... idk bout other stuff)
+
+Fork changes so the script runs on Arch Linux against Waydroid instead of
+Windows + an emulator. Only the Windows-specific parts were changed; the
+coordinate math, OCR loop and buying logic are untouched.
+
+## What changed in `autobuy.py`
+
+- **Dialogs:** `ctypes.windll.user32.MessageBoxW` replaced with
+  `tkinter.messagebox` (`showinfo`, `showerror`, `askyesno`).
+- **ADB calls:** now go through one `adb()` helper that passes a list of
+  arguments (no shell string quoting) and always captures output.
+  - Targets one device with `-s <adbDevice>`.
+  - Auto-reconnect: if a call fails or the error mentions
+    not found / offline / unauthorized / no devices / closed, it runs
+    `adb connect` and retries up to 4 times.
+- **Screenshots:** `screen()` looks for the PNG signature in the output and
+  ignores anything before it. Waydroid prints a warning line
+  ("Failed to create //.cache for shader cache") to stdout before the image,
+  which otherwise breaks Pillow. If no PNG is found, the error includes the
+  first 200 bytes of output.
+- **`killadb()`:** `taskkill /IM adb.exe` replaced with `adb kill-server`.
+- **Config:** no more `tesseract.exe` / `adb.exe` pickers; both tools are
+  found on `PATH`. `config.ini` is now:
+```
+  [Refresh]
+  delay = 1.5
+  adbDevice = 192.168.240.112:5555
+```
+  Delete any old Windows `config.ini` so it regenerates.
+- **Resolution check:** `abs(w/h - 16/9) > 0.01` instead of exact float
+  equality.
+- Added the missing `import sys` (and `import shutil`); removed `ctypes`
+  and `filedialog`.
+
+## Setup on Arch
+
+```bash
+sudo pacman -S android-tools tesseract tesseract-data-eng python-pillow tk
+python -m venv venv && source venv/bin/activate
+pip install pytesseract pillow
+```
+
+`tesseract-data-eng` is required or OCR fails. `tk` provides tkinter.
+
+## Waydroid setup
+
+1. Start the session, then get the container IP: `waydroid status`
+   (look for `IP address`). ADB port is 5555, so the address is
+   `<ip>:5555`. Enter it when `config.ini` is first created.
+2. The script runs `adb connect` itself. If Android shows an
+   authorization prompt, accept it and tick "Always allow".
+3. Screen must be **16:9**. The script scales every coordinate from the
+   screen width (`width / 1280`) and rejects anything else. Check with
+   `adb -s <ip>:5555 shell wm size`. To pin a size (examples: 1920x1080,
+   or 1824x1026 to fit under 1900x1030):
+```bash
+   waydroid prop set persist.waydroid.width 1920
+   waydroid prop set persist.waydroid.height 1080
+   waydroid session stop && waydroid session start
+```
+   (Property names are from memory; `waydroid prop list` shows what your
+   version supports.) Larger sizes work but make screenshots and OCR slower.
+4. The game needs an ARM translation layer in Waydroid (libhoudini or
+   libndk) to run at all.
+
+## Known issues / not done
+
+- If ADB drops and the IP changes after a session restart, update
+  `adbDevice` in `config.ini`.
+- No loading-screen detection; the script only uses fixed sleeps scaled
+  by `delay`. Raise `delay` if the game is laggy.
+- After clicking Yes on the "Ready to start?" dialog, the dialog may stay
+  frozen on screen while the script runs (Tk gets no event loop). Possible
+  fix: keep a `root = Tk()` reference and call `root.update()` after the
+  dialog. Not applied.
+- Untested: whether minimizing the Waydroid window pauses rendering and
+  breaks `screencap`. Keep the window visible when testing.
+
+## Debugging tips
+
+- Test capture by hand:
+  `adb -s <ip>:5555 exec-out screencap -p > /tmp/test.png; file /tmp/test.png`
+- `crash.log` has the traceback and, for screenshot failures, the raw
+  output that came back.
+- If `adb()` is called with `capture=...` anywhere, you have an old helper;
+  the current one is `def adb(*args):`.
+
 # E7AutoBuy
 
 Auto refreshes secret shop and buy all Covenant Bookmarks and Mystic Medals  

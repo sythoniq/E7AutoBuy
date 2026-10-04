@@ -1,30 +1,58 @@
-from tkinter import filedialog, simpledialog
+from tkinter import simpledialog, messagebox
 from tkinter import *
 import pytesseract as ocr
 import subprocess
 import PIL
 from PIL import Image
 from io import BytesIO
+import sys
+import shutil
 import time
 import configparser
-import ctypes
 import datetime
 import logging
 
+PNG_SIG = b"\x89PNG\r\n\x1a\n"
+ADB = shutil.which("adb")
+adb_device = None
+
+def connect():
+    subprocess.run([ADB, "connect", adb_device], capture_output=True)
+
+
+def adb(*args):
+    cmd = [ADB]
+    if adb_device:
+        cmd += ["-s", adb_device]
+    cmd += [str(a) for a in args]
+    result = None
+    for attempt in range(4):
+        result = subprocess.run(cmd, capture_output=True)
+        err = result.stderr.decode(errors="ignore").lower()
+        dropped = any(s in err for s in ("not found", "offline", "unauthorized", "no devices", "closed"))
+        if result.returncode == 0 and not dropped:
+            return result
+        if adb_device:
+            connect()
+        time.sleep(1)
+    return result
 
 def click(x, y):
-    subprocess.Popen(f"{adb_path} shell input tap {x} {y}")
+    adb("shell", "input", "tap", x, y)
 
 
 def screen():
-    screen_bytes = subprocess.Popen(f"{adb_path} exec-out screencap -p", stdout=subprocess.PIPE, shell=True, stderr=subprocess.PIPE, stdin=subprocess.PIPE)
-    img_bytes = screen_bytes.stdout.read()
-    screenshot = Image.open(BytesIO(img_bytes))
+    result = adb("exec-out", "screencap", "-p")
+    img_bytes = result.stdout
+    # Waydroid can print warning text to stdout before the PNG data
+    start = img_bytes.find(PNG_SIG)
+    if start == -1:
+        raise PIL.UnidentifiedImageError(f"screencap returned no PNG. stdout={img_bytes[:200]!r} stderr={result.stderr[:200]!r}")
+    screenshot = Image.open(BytesIO(img_bytes[start:]))
     return screenshot
 
-
 def swipe(x1, y1, x2, y2):
-    subprocess.Popen(f"{adb_path} shell input touchscreen swipe {x1} {y1} {x2} {y2}")
+    adb("shell", "input", "touchscreen", "swipe", x1, y1, x2, y2)
 
 
 def reroll():
@@ -72,19 +100,18 @@ def buy(slot):
 
 
 def killadb():
-    subprocess.Popen(r'taskkill /IM "adb.exe" /F')
+    adb("kill-server")
 
 
 def config():
-    ctypes.windll.user32.MessageBoxW(0, "Select tesseract.exe file", "Setting Up", 0)
-    tesseractFile = filedialog.askopenfile().name
-    ctypes.windll.user32.MessageBoxW(0, "Select adb.exe file", "Setting Up", 0)
-    adbFile = filedialog.askopenfile().name
     delayset = simpledialog.askfloat(" ", "Delay value (Default is 1.5)\nIf your emulator has bad performance set a higher value\nOpen config.ini if want to change it later")
     if delayset is None:
         delayset = 1.5
+    device = simpledialog.askstring(" ", "Waydroid ADB address (IP is shown by 'waydroid status')\nExample: 192.168.240.112:5555")
+    if not device:
+        device = "192.168.240.112:5555"
     configFile = open('config.ini', 'w')
-    configFile.write(f'[Refresh]\ntesseractPath = {tesseractFile}\nadbPath = {adbFile}\ndelay = {delayset}')
+    configFile.write(f'[Refresh]\ndelay = {delayset}\nadbDevice = {device}')
     configFile.close()
 
 
@@ -92,7 +119,7 @@ def crashhandler(handled=""):
     logging.basicConfig(filename='crash.log')
     logging.exception(f'\n{datetime.datetime.now()}{handled}\n')
     killadb()
-    ctypes.windll.user32.MessageBoxW(0, "Something went wrong, check crash.log file", "Crash Handler", 0)
+    messagebox.showerror("Crash Handler", "Something went wrong, check crash.log file")
     sys.exit()
 
 
@@ -106,9 +133,7 @@ except FileExistsError:
 try:
     config = configparser.ConfigParser()
     config.read('config.ini')
-    ocr.pytesseract.tesseract_cmd = config.get('Refresh', 'tesseractPath')
-    adb_path = config.get('Refresh', 'adbPath')
-    adb_path = f'"{adb_path}"'
+    adb_device = config.get('Refresh', 'adbDevice')
     delay = config.getfloat('Refresh', 'delay')
 except:
     crashhandler("\nCheck your config.ini file")
@@ -119,20 +144,21 @@ if rolls is None:
 cBM = 0
 MM = 0
 try:
-    subprocess.Popen(f"{adb_path} devices")
+    subprocess.run([ADB, "connect", adb_device])
+    adb("devices")
     print("TO STOP ANYTIME PRESS CTRL+C IN THE CONSOLE")
     time.sleep(5)
     resolution = screen()
 except PIL.UnidentifiedImageError:
     crashhandler("\nADB isn't working")
 
-if (resolution.size[0]/16) != (resolution.size[1]/9):
-    ctypes.windll.user32.MessageBoxW(0, f"Resolution {resolution.size[0]}x{resolution.size[1]} not supported, use 16:9 aspect ratio", "Error", 0)
+if abs(resolution.size[0]/resolution.size[1] - 16/9) > 0.01:
+    messagebox.showerror("Error", f"Resolution {resolution.size[0]}x{resolution.size[1]} not supported, use 16:9 aspect ratio")
     killadb()
     sys.exit()
 ET = str(datetime.timedelta(seconds=(rolls*11.5*delay)))[:8]
-result = ctypes.windll.user32.MessageBoxW(0, f"Skystones = {3*rolls}\nRefreshes = {rolls}\nDelay = {delay}x\nEstimated time = {ET}\nTO STOP ANYTIME PRESS CTRL+C IN THE CONSOLE\nReady to start ?", "Setup", 4)
-if result != 6:
+result = messagebox.askyesno("Setup", f"Skystones = {3*rolls}\nRefreshes = {rolls}\nDelay = {delay}x\nEstimated time = {ET}\nTO STOP ANYTIME PRESS CTRL+C IN THE CONSOLE\nReady to start ?")
+if not result:
     killadb()
     sys.exit()
 
@@ -221,4 +247,4 @@ log = open("logs.txt", "a")
 log.write(f'Started at {start}\nEnded at {end}\nTime elapsed: {end-start}\nRefreshes = {x}\nSkystones spent = {3*x}\n{rerollResults}\n')
 log.close()
 killadb()
-ctypes.windll.user32.MessageBoxW(0, rerollResults, "Results", 0)
+messagebox.showinfo("Results", rerollResults)
